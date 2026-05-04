@@ -1,6 +1,6 @@
 # elgato-plugin-decrypter
 
-Decrypts Elgato Stream Deck plugin packages (`.streamDeckPlugin`) and their encrypted `manifest.json` files. Can also convert the decrypted manifest to a format that works with the **MiraBox Stream Dock** SDK.
+Decrypts Elgato Stream Deck plugin packages (`.streamDeckPlugin`) and their encrypted `manifest.json` files. Can also convert the decrypted manifest to a format that works with the **MiraBox Stream Dock**.
 
 ## Features
 
