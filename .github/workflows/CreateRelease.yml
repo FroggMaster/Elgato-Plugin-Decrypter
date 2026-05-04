@@ -64,16 +64,14 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ inputs.tag }}"
-          SAFE_TAG="${TAG//\//-}"
 
-          ARTIFACT_NAME="Elgato-Plugin-Decrypter-${SAFE_TAG}-win-x64-selfcontained"
-          ZIP_PATH="artifacts/${ARTIFACT_NAME}.zip"
+          ZIP_PATH="artifacts/Elgato-Plugin-Decrypter-${TAG}.zip"
 
           (cd "${PUBLISH_DIR}" && zip -r "../../${ZIP_PATH}" .)
 
           echo "ZIP_PATH=${ZIP_PATH}" >> "$GITHUB_ENV"
 
-      - name: Generate changelog (full commit history since previous tag)
+      - name: Generate changelog
         id: changelog
         shell: bash
         run: |
@@ -84,28 +82,12 @@ jobs:
 
           PREV_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
 
-          {
-            echo "## Changelog"
-            echo
-            if [[ -n "${PREV_TAG}" ]]; then
-              echo "**Changes since \`${PREV_TAG}\`**"
-              echo
-              echo "**Full diff:** ${REPO_URL}/compare/${PREV_TAG}...${NEW_TAG}"
-            else
-              echo "**Initial release**"
-            fi
-            echo
-            echo "### Commits"
-            echo
-          } > RELEASE_NOTES.md
-
           if [[ -n "${PREV_TAG}" ]]; then
-            git log --no-merges --date=short --pretty=format:'- %s ([%h]('"${REPO_URL}"'/commit/%H)) — %an — %ad' "${PREV_TAG}..HEAD" >> RELEASE_NOTES.md
+            echo "**Full Changelog**: ${REPO_URL}/compare/${PREV_TAG}...${NEW_TAG}" > RELEASE_NOTES.md
           else
-            git log --no-merges --date=short --pretty=format:'- %s ([%h]('"${REPO_URL}"'/commit/%H)) — %an — %ad' >> RELEASE_NOTES.md
+            echo "**Full Changelog**: ${REPO_URL}/commits/${NEW_TAG}" > RELEASE_NOTES.md
           fi
 
-          echo >> RELEASE_NOTES.md
           echo "notes_path=RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"
 
       - name: Create tag if missing
