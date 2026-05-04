@@ -1,0 +1,132 @@
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to create/use for the release (e.g. v1.2.3)"
+        required: true
+      release_name:
+        description: "Release title (defaults to tag)"
+        required: false
+      prerelease:
+        description: "Mark as prerelease"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    env:
+      DOTNET_VERSION: "8.0.x"
+      PROJECT_PATH: "elgato-decrypter.sln"
+      CONFIGURATION: "Release"
+      RUNTIME: "win-x64"
+      SELF_CONTAINED: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore "${PROJECT_PATH}"
+
+      - name: Publish (self-contained win-x64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PUBLISH_DIR="artifacts/publish"
+
+          dotnet publish "${PROJECT_PATH}" \
+            -c "${CONFIGURATION}" \
+            -r "${RUNTIME}" \
+            --self-contained "${SELF_CONTAINED}" \
+            -p:DebugType=None \
+            -p:DebugSymbols=false \
+            -p:IncludeSymbols=false \
+            -o "${PUBLISH_DIR}"
+
+          find "${PUBLISH_DIR}" -type f -iname "*.pdb" -delete
+
+          echo "PUBLISH_DIR=${PUBLISH_DIR}" >> "$GITHUB_ENV"
+
+      - name: Create artifact zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          SAFE_TAG="${TAG//\//-}"
+
+          ARTIFACT_NAME="Elgato-Plugin-Decrypter-${SAFE_TAG}-win-x64-selfcontained"
+          ZIP_PATH="artifacts/${ARTIFACT_NAME}.zip"
+
+          (cd "${PUBLISH_DIR}" && zip -r "../../${ZIP_PATH}" .)
+
+          echo "ZIP_PATH=${ZIP_PATH}" >> "$GITHUB_ENV"
+
+      - name: Generate changelog (full commit history since previous tag)
+        id: changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+          NEW_TAG="${{ inputs.tag }}"
+
+          PREV_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+
+          {
+            echo "## Changelog"
+            echo
+            if [[ -n "${PREV_TAG}" ]]; then
+              echo "**Changes since \`${PREV_TAG}\`**"
+              echo
+              echo "**Full diff:** ${REPO_URL}/compare/${PREV_TAG}...${NEW_TAG}"
+            else
+              echo "**Initial release**"
+            fi
+            echo
+            echo "### Commits"
+            echo
+          } > RELEASE_NOTES.md
+
+          if [[ -n "${PREV_TAG}" ]]; then
+            git log --no-merges --date=short --pretty=format:'- %s ([%h]('"${REPO_URL}"'/commit/%H)) — %an — %ad' "${PREV_TAG}..HEAD" >> RELEASE_NOTES.md
+          else
+            git log --no-merges --date=short --pretty=format:'- %s ([%h]('"${REPO_URL}"'/commit/%H)) — %an — %ad' >> RELEASE_NOTES.md
+          fi
+
+          echo >> RELEASE_NOTES.md
+          echo "notes_path=RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag if missing
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists."
+          else
+            git tag "${TAG}"
+            git push origin "${TAG}"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: ${{ inputs.release_name != '' && inputs.release_name || inputs.tag }}
+          body_path: ${{ steps.changelog.outputs.notes_path }}
+          prerelease: ${{ inputs.prerelease }}
+          files: |
+            ${{ env.ZIP_PATH }}
